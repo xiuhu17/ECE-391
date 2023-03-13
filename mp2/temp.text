@@ -1,0 +1,132 @@
+/* tuxctl-ioctl.c
+ *
+ * Driver (skeleton) for the mp2 tuxcontrollers for ECE391 at UIUC.
+ *
+ * Mark Murphy 2006
+ * Andrew Ofisher 2007
+ * Steve Lumetta 12-13 Sep 2009
+ * Puskar Naha 2013
+ */
+
+#include <asm/current.h>
+#include <asm/uaccess.h>
+
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/sched.h>
+#include <linux/file.h>
+#include <linux/miscdevice.h>
+#include <linux/kdev_t.h>
+#include <linux/tty.h>
+#include <linux/spinlock.h>
+
+#include "tuxctl-ld.h"
+#include "tuxctl-ioctl.h"
+#include "mtcp.h"
+
+#define debug(str, ...) \
+	printk(KERN_DEBUG "%s: " str, __FUNCTION__, ## __VA_ARGS__)
+
+/************************ Protocol Implementation *************************/
+
+/* tuxctl_handle_packet()
+ * IMPORTANT : Read the header for tuxctl_ldisc_data_callback() in 
+ * tuxctl-ld.c. It calls this function, so all warnings there apply 
+ * here as well.
+ */
+
+int prev_cmd_fin;
+unsigned long button;
+
+
+int tux_init(struct tty_struct* tty);
+int tux_buttons(struct tty_struct* tty, unsigned long arg);
+int tux_set_led(struct tty_struct* tty, unsigned long arg);
+
+
+void tuxctl_handle_packet (struct tty_struct* tty, unsigned char* packet)
+{
+    unsigned a, b, c;
+
+    a = packet[0]; /* Avoid printk() sign extending the 8-bit */
+    b = packet[1]; /* values when printing them. */
+    c = packet[2];
+
+	if (a == MTCP_ACK) {
+		prev_cmd_fin = 1; 					/* means the previous commands has been set successfully*/	
+	} else if (a == MTCP_BIOC_EVENT) {      /* Button is active low */
+		button = (unsigned long)0x0f & b;
+		unsigned long right_up = (0x9 & c) << 4;
+		unsigned long down = (0x4 & c) << 5;
+		unsigned long left = (0x2 & c) << 6;
+		button = right_up | down | left | button; 
+	} else if (a == MTCP_RESET) {
+		// char temp[2];
+		// temp[0] = MTCP_BIOC_ON
+		// temp[1] = MTCP_LED_USR
+		// tuxctl_ldisc_put(tty, temp, 2);
+	}	
+
+    /*printk("packet : %x %x %x\n", a, b, c); */
+}
+
+/******** IMPORTANT NOTE: READ THIS BEFORE IMPLEMENTING THE IOCTLS ************
+ *                                                                            *
+ * The ioctls should not spend any time waiting for responses to the commands *
+ * they send to the controller. The data is sent over the serial line at      *
+ * 9600 BAUD. At this rate, a byte takes approximately 1 millisecond to       *
+ * transmit; this means that there will be about 9 milliseconds between       *
+ * the time you request that the low-level serial driver send the             *
+ * 6-byte SET_LEDS packet and the time the 3-byte ACK packet finishes         *
+ * arriving. This is far too long a time for a system call to take. The       *
+ * ioctls should return immediately with success if their parameters are      *
+ * valid.                                                                     *
+ *                                                                            *
+ ******************************************************************************/
+int 
+tuxctl_ioctl (struct tty_struct* tty, struct file* file, 
+	      unsigned cmd, unsigned long arg)
+{	
+    switch (cmd) {
+	case TUX_INIT:
+		tux_init(tty);
+		break;
+	case TUX_BUTTONS:
+		tux_buttons(tty, arg);
+		break;
+	case TUX_SET_LED:
+	case TUX_LED_ACK:								// do not implement
+	case TUX_LED_REQUEST:							// do not implement
+	case TUX_READ_LED:    							// do not implement
+	default:
+	    return -EINVAL;
+    }
+}
+
+int tux_init(struct tty_struct* tty) {
+	char temp[2];
+	temp[0] = MTCP_BIOC_ON;
+	temp[1] = MTCP_LED_USR;
+	prev_cmd_fin = 0;
+	button = 0x0;
+	tuxctl_ldisc_put(tty, temp, 2);
+	return 0;
+}
+
+int tux_buttons(struct tty_struct* tty, unsigned long arg) {
+	int sz;
+	if (0 < (sz = copy_to_user((unsigned long*)arg, (unsigned long*)&button, sizeof(button)))) {
+		return -EINVAL;
+	}
+	return 0;
+}
+
+int tux_set_led(struct tty_struct* tty, unsigned long arg) {
+	return 0;
+	
+}
+
+
+

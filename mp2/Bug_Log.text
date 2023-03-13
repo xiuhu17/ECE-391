@@ -1,0 +1,61 @@
+Understanding of the material:
+    1: First I need to figure out we actually have three "stuffs", a) logical view, b) buffer, c) video memory
+    2: We should first graph the logical view data into buffer, and use copy_image and copy_status_bar funtion to really transfer data into target_img and bar_img.
+    3: If we use double buffer here, we need to reverse the plane offset.
+    4: In text.c, font_data represents each char in ascii. And each row represetns the formation pixel in VGA for specific character.
+    5: Adventure.c <---connected---> Input.c <---connected---> Tuxctl-ioctl.c <---connected---> Tuxct-ld.c <---connected---> Controller 
+
+modex.c BUG:
+    1: mode_X_CRTC for the 6B18, first time I did not really calculate the right value. I forgot the double buffering, it should be the last 8 bits of 2 * (200 - 18)
+    2: Line: 313. I should set target_img = BAR_SIZE which a) be non zero, since we should not begin at zero, places for status bar, b) should /4 since we need to get the size of plane
+    3: Line: 554. I should not write OUTW again, if though, it will print out two bar
+    4: Line: 635. I should use i * IMAGE_X_With, instead of i. Since for each adjacent line, there are IMAGE_X_With elements added in each plane.
+    5: Line: 1077. First time I forgot to use 1440, I used 5760 which is incorrect. Because we only copy one plane a time.
+
+
+text.c BUG:
+    1: Line: 566. I need two parameter, the second one will indicates where I need to put the text to.
+    2: Line: 566. I should not call color_to_graphic function inside text_to_graphic. If so, I could not get building name and command at the same time. Since every time, I need to display message, I will always overwrite the status bar to all blue pixel.
+    3: Line: 585. I noticed to use [1, 16] for y-coordinate. But I use font_data[curr_char][j], where j = [1, 16], which apparently will cause page fault. I still need to use [0, 15]
+    4: Line: 589. Only need to draw text when its corrosponding bit is 1.
+    5: Line: 590. No double buffer, no need to 3 - (k & 3). Just use k & 3
+    6: Line: 593. I forgot to add begin(offset).
+    7: Line: 593. I forgot to  divide 4, begin / 4.
+    8: Line: 593. After I change to [0, 15], I forgot add add one to j, that is (1 + j) to represents the y coordinate.
+    9: Line: 586. I use 0x1 at the first time, and apprently, we need to use from left to right.
+    10: Line: 603. Set i = length, to make sure adding an underscore at the end of string.
+
+adventure.c BUG:
+    1: Line: 257. I forgot to display the building name and cmd only when we do not have status msg.
+    2: Line: 257. I forgot to use lock for status msg.
+    3: Line: 328. Remeber to check whether we use get_tux as command or not.
+    4: Line: 687. Remember to set the flag(used to indicate whether I use tux button or not) to initial state. Also remeber to change this value inside the lock.
+    5: Line: 858. Remeber to push the tux_thread on the cleanup stack.
+    6: Line: 324. Time to display is cur_time - start_time. Not tick time.
+
+input.c BUG:
+    1: Set fd as globle variable, otherwise we need to opne twice, cause the following error.
+    2: Only open the file once, otherwise, we will lost the prev port, and connect the the wrong port. Command will not work.
+    3: Line 180: Set prev_cmd, other wise it will continuing the previous cmd when testing ./input
+    4: Line 195-216: Carefully set the prev_cmd and pushed for CMD_ENTER/MOVE
+    5: CONVERT macro need to be set as 0x0f instead of 0xf.
+    6: Line 410: When use sec, min,... as middle variable storing the value. I could not use unsigned int. I need to use int, otherwise, the highest bit is 5.
+    7: Macro: Use 0x00070000 rather than 0x70000. All others like this.
+
+ioctl.c BUG:
+    1: Line 67-70: Wrong shifting, costs entire day to fix. 
+    2: Line: 172 : Set led light, when putting data to driver, I use wrong size. It should be dependent on the led light we actually need to use.
+    3: Always need to check whether the data has been successfully sent to controller/tux.
+    4: In tux_set_led, I need to set the led light after checking whether the prev command(MTCP_ACK) has been succesfully finished.
+    5. Line: 158. Need to use copy_to_user, since it is in kernel mode. Also oay attention to the data type. 
+    6. Line: 156. Need to check whether the pointer is nullptr.
+    7. Need to store the previous led information in to the globle variable in tux_set_led function. Use for reset purpose.
+    8. Line: 208. Forget to shift decimal value.
+    9. Line: 202. For get to add () for multiplication.
+
+Octree.c BUG:
+    1: I need to also add offset(64) to the return value of function query_index. Since it is from 64 - 256.
+
+general BUG:
+    1: I need to pay attention when setting macro. I need to use () to encampuse all value. It not, the priority of operation might be changed.
+    2: Always remmber when using bitmask, 0xf is different from 0x0f.
